@@ -1,4 +1,6 @@
 # betterEreterNet
+![screenshot](https://github.com/user-attachments/assets/c2f6b63f-10cd-4d5a-82f0-67de8d793f9d)
+
 このユーザースクリプトはereter.netの/"任意のユーザーID"/analytics/combined/のページを以下の通り変更します。下記の機能はサイトには負荷をかけず、全てブラウザ上で完結しています。
 Tampermonkeyで動作を確認しています。
 
