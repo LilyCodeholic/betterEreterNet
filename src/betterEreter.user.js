@@ -5,6 +5,7 @@
 // @author       lily.C
 // @match        http://ereter.net/iidxplayerdata/*/analytics/combined/
 // @grant        none
+// @updateURL    https://github.com/LilyCodeholic/betterEreterNet/raw/master/src/betterEreter.user.js
 // ==/UserScript==
 
 (() =>
