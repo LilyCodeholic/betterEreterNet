@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         betterEreter
-// @version      0.3
+// @version      0.4
 // @description  better ereter.net
 // @author       lily.C
 // @match        http://ereter.net/iidxplayerdata/*/analytics/combined/
@@ -226,6 +226,78 @@ for(const row of Array.from(table.rows).slice(1))
 		lamp.innerHTML = `<span style="color: #efef51">EXH</span>`
 	}
 }
+
+//エクスポートとインポートのボタンとテキストボックスを追加する
+//DOMを追加する場所のflexboxを調整する
+const divFlex = document.querySelector("div.col-md-3.pt-3")
+divFlex.classList.remove("col-md-3")
+divFlex.classList.add("col-md-9")
+
+//追加するボタンとテキストボックスの作成
+const exportButton = document.createElement("button")
+exportButton.setAttribute("class", "blend")
+exportButton.setAttribute("type", "button")
+exportButton.textContent = "Export OP"
+exportButton.style.marginRight = "1rem"
+
+const importButton = document.createElement("button")
+importButton.setAttribute("class", "blend")
+importButton.setAttribute("type", "button")
+importButton.textContent = "Import OP"
+importButton.style.marginRight = "1rem"
+
+const textBox = document.createElement("textarea")
+textBox.style.width = "25%"
+textBox.style.height = "2rem"
+
+//DOMの挿入場所の指定
+const position = document.querySelector("div.input-group")
+//DOMの挿入
+position.insertAdjacentElement("beforeend", exportButton)
+position.insertAdjacentElement("beforeend", importButton)
+position.insertAdjacentElement("beforeend", textBox)
+
+//エクスポートボタンクリック時の処理
+exportButton.addEventListener("click", () =>
+{
+	const request = indexedDB.open(nameDB, versionDB)
+	request.onsuccess = (event) =>
+	{
+		const db = event.target.result
+		const transaction = db.transaction(nameDB, "readonly")
+		const objectStore = transaction.objectStore(nameDB)
+		const getAllRequest = objectStore.getAll()
+
+		getAllRequest.onsuccess = () =>
+		{
+			textBox.value = JSON.stringify(getAllRequest.result, null, 2)
+		}
+	}
+})
+//インポートボタンクリック時の処理
+importButton.addEventListener("click", () =>
+{
+	const data = JSON.parse(textBox.value)
+	const request = indexedDB.open(nameDB, versionDB)
+	request.onsuccess = (event) =>
+	{
+		const db = event.target.result
+		const transaction = db.transaction(nameDB, "readwrite")
+		const objectStore = transaction.objectStore(nameDB)
+
+		data.forEach((item) =>
+		{
+			objectStore.put(item)
+		})
+
+		transaction.oncomplete = () =>
+		{
+			//アラートを日本語と英語で表示する
+			window.alert("オプションのインポートが完了しました。\nThe import of options is complete.")
+		}
+	}
+})
+
 //cssの設定
 const style = document.createElement("style")
 style.textContent = `
@@ -234,6 +306,7 @@ select{
 	appearance: none;
 	border-radius: 0.25rem;
 	padding: 0.1rem 0.5rem;
+	border: 1px solid #434857;
 	background-color: #434857;
 	color: lightgray;
 	font-size: 0.8rem;
@@ -253,6 +326,15 @@ td{
 }
 td:first-child{
 	white-space: nowrap !important;
+}
+.blend{
+	background-color: #434857;
+	color: lightgray;
+	border: 1px solid #434857;
+	border-radius: 0.25rem;
+	padding: 0.1rem 0.5rem;
+	font-size: 0.9rem;
+	cursor: pointer;
 }
 `
 document.head.append(style)
