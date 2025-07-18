@@ -105,11 +105,24 @@ request.onsuccess = (event) =>
 		select.setAttribute("class", classScore)
 		select.addEventListener("change", saveOptionsToIndexedDB)
 		select.name = name
+		//一番左のselectだけ狭くするためにclassを追加する
+		if(name === "flip")
+		{
+			select.classList.add("first-select")
+		}
 		options.forEach((option, index) =>
 		{
 			const opt = document.createElement("option")
-			opt.value = option
 			opt.textContent = option
+			//最初のオプションは曲名なので選択できないようにする
+			if(index === 0)
+			{
+				opt.disabled = true
+			}
+			else
+			{
+				opt.value = option
+			}
 			if(option === selected)
 			{
 				opt.selected = true
@@ -145,12 +158,31 @@ request.onsuccess = (event) =>
 				//DocumentFragmentを作成
 				const fragment = document.createDocumentFragment()
 
+				//全角換算で20文字までにカット
+				const omitTextLength = (str, maxLen) => {
+					let len = 0
+					let result = ""
+					for(const ch of str)
+					{
+						len += (ch.charCodeAt(0) > 255) ? 1 : 0.5
+						//文字数がmaxLenを超えたら、短縮したことを表す文字を追加してループを抜ける
+						if(len > maxLen)
+						{
+							result += "…"
+							break
+						}
+						result += ch
+					}
+					return result
+				}
+				const shortTitle = omitTextLength(title.childNodes[0].textContent, 19)
+
 				//ドロップダウンメニューを作成
-				const optionFlip = ["-", "F", "？"]
+				const optionFlip = [`${shortTitle}: FLIP\u00A0`, "-", "F", "？"]
 				const selectFlip = createSelect(idScore, optionFlip, "flip", record.flip)
-				const optionLeft = ["-", "M", "R", "RR", "SR", "？"]
+				const optionLeft = [`${shortTitle}: LEFT\u00A0`, "-", "M", "R", "RR", "SR", "？"]
 				const selectLeft = createSelect(idScore, optionLeft, "left", record.left)
-				const optionRight = ["-", "M", "R", "RR", "SR", "？"]
+				const optionRight = [`${shortTitle}: RIGHT\u00A0`, "-", "M", "R", "RR", "SR", "？"]
 				const selectRight = createSelect(idScore, optionRight, "right", record.right)
 				fragment.appendChild(selectFlip)
 				fragment.appendChild(selectLeft)
@@ -312,6 +344,10 @@ select{
 	font-size: 0.8rem;
 	text-align: center;
 	cursor: pointer;
+	width: 2rem;
+}
+select.first-select{
+	width: 1.75rem;
 }
 select:hover{
 	background-color: #8690AE;
