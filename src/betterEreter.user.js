@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         betterEreter
-// @version      0.4
+// @version      0.5
 // @description  better ereter.net
 // @author       lily.C
 // @match        http://ereter.net/iidxplayerdata/*/analytics/combined/
+// @match        http://ereter.net/iidxplayerdata/*/level/12/
 // @grant        none
 // @updateURL    https://github.com/LilyCodeholic/betterEreterNet/raw/master/src/betterEreter.user.js
 // @downloadURL  https://github.com/LilyCodeholic/betterEreterNet/raw/master/src/betterEreter.user.js
@@ -22,7 +23,10 @@ const saveOptionsToIndexedDB = (event) =>
 	const flip = row.querySelector(`select[name="flip"]`).value
 	const left = row.querySelector(`select[name="left"]`).value
 	const right = row.querySelector(`select[name="right"]`).value
+	const diffRow = row.cells[3].getAttribute("sort-value")
+	const diff = parseFloat(diffRow).toFixed(3)
 
+	//IndexedDBに保存する
 	const request = indexedDB.open(nameDB, versionDB)
 	request.onsuccess = (event) =>
 	{
@@ -30,7 +34,7 @@ const saveOptionsToIndexedDB = (event) =>
 		const transaction = db.transaction(nameDB, "readwrite")
 		const objectStore = transaction.objectStore(nameDB)
 
-		const data = {id, flip, left, right}
+		const data = {id, flip, left, right, diff}
 		objectStore.put(data).onsuccess = () =>
 		{
 			console.log(`セーブしました: ${JSON.stringify(data)}`)
@@ -44,8 +48,11 @@ const table = document.querySelector("table")
 const rows = document.querySelectorAll("tbody tr")
 
 //データベース名とバージョンを定義する
+//バージョン履歴
+//～0.4: 1 → 初期バージョン
+//  0.5: 2 → ereter難易度の追加
 const nameDB = "ereter-options"
-const versionDB = 1
+const versionDB = 2
 
 //IndexedDBのデータベースを開く
 const request = indexedDB.open(nameDB, versionDB)
@@ -55,6 +62,12 @@ request.onupgradeneeded = (event) =>
 {
 	//データベースを取得する
 	const db = event.target.result
+
+	///analytics/combined/ページでない場合はereter難易度を取得できないので何もしない
+	if(!window.location.pathname.includes("/analytics/combined/"))
+	{
+		return
+	}
 
 	//テーブルが存在しない場合は作成する
 	if(!db.objectStoreNames.contains(nameDB))
@@ -71,9 +84,13 @@ request.onupgradeneeded = (event) =>
 			//href部分を変数に格納
 			const href = title.querySelector("a").getAttribute("href")
 			const idScore = href.split("/")[2]
+			//譜面のereter難易度を取得する
+			//難易度はtd sort-value="～～"の部分の小数点三桁まで取得する
+			const diffRow = row.cells[3].getAttribute("sort-value")
+			const diff = parseFloat(diffRow).toFixed(3)
 
 			//譜面IDとオプションの初期値を挿入する
-			const put = objectStore.put({"id": idScore, "flip": "-", "left": "-", "right": "-"})
+			const put = objectStore.put({"id": idScore, "flip": "-", "left": "-", "right": "-", "diff": diff})
 			put.onsuccess = (event) =>
 			{
 				console.log("レコードを追加しました")
@@ -83,6 +100,24 @@ request.onupgradeneeded = (event) =>
 				console.error("レコードの追加中にエラーが発生しました", event.target.error)
 			}
 		}
+	}
+	//テーブルが存在する場合は項目を追加する
+	else if(db.objectStoreNames.contains(nameDB) && event.oldVersion < 2)
+	{
+		//既存のidにdiffを追加する
+		const objectStore = event.target.transaction.objectStore(nameDB)
+		objectStore.openCursor().onsuccess = (e) =>
+		{
+			const cursor = e.target.result
+			if(cursor)
+			{
+				const data = cursor.value
+				data.diff = ""
+				cursor.update(data)
+				cursor.continue()
+			}
+		}
+		console.log("データベースのアップグレードが完了しました")
 	}
 }
 //データベースの取得に成功したときに発火
@@ -105,16 +140,22 @@ request.onsuccess = (event) =>
 		select.setAttribute("class", classScore)
 		select.addEventListener("change", saveOptionsToIndexedDB)
 		select.name = name
-		//一番左のselectだけ狭くするためにclassを追加する
+		//一番左のselect(flip)だけ狭くするためにclassを追加する
 		if(name === "flip")
 		{
 			select.classList.add("first-select")
 		}
 		options.forEach((option, index) =>
 		{
+			//パソコン版のページの場合は、最初のoptionsを挿入しない
+			if(!navigator.userAgent.match(/iPhone|Android/) && index === 0)
+			{
+				return
+			}
+
 			const opt = document.createElement("option")
 			opt.textContent = option
-			//最初のオプションは曲名なので選択できないようにする
+			//モバイル版のページのみ、最初のオプションは曲名なので選択できないようにする
 			if(index === 0)
 			{
 				opt.disabled = true
@@ -143,6 +184,10 @@ request.onsuccess = (event) =>
 		//href部分(→譜面URL)を変数に格納
 		const href = title.querySelector("a").getAttribute("href")
 		const idScore = href.split("/")[2]
+		//譜面のereter難易度を取得する
+		//難易度はtd sort-value="～～"の部分の小数点三桁まで取得する
+		const diffRow = row.cells[3].getAttribute("sort-value")
+		const diff = parseFloat(diffRow).toFixed(3)
 
 		//譜面IDと一致するレコードを検索する
 		const get = index.get(idScore)
@@ -190,12 +235,23 @@ request.onsuccess = (event) =>
 
 				//Fragmentをcellに追加
 				option.appendChild(fragment)
+
+				//diffが空文字か既存のデータと差異がある場合、ereter難易度を更新する
+				if(record.diff === "" || record.diff !== diff)
+				{
+					const updatedRecord = {id: idScore, flip: record.flip, left: record.left, right: record.right, diff: diff}
+					const updateRequest = objectStore.put(updatedRecord)
+					updateRequest.onerror = (event) =>
+					{
+						console.error("パラメータの追加中にエラーが発生しました", event.target.error)
+					}
+				}
 			}
 			//レコードが見つからなかった場合、flip, left, rightの初期値と合わせてレコードを追加する
 			else
 			{
 				//譜面IDとオプションの初期値を挿入する
-				const put = objectStore.put({"id": idScore, "flip": "-", "left": "-", "right": "-"})
+				const put = objectStore.put({"id": idScore, "flip": "-", "left": "-", "right": "-", "diff": diff})
 				put.onsuccess = (event) =>
 				{
 					console.log(`レコードが見つからなかったのでレコードを追加しました。"id": ${idScore}`)
@@ -218,117 +274,172 @@ request.onerror = (event) =>
 	console.log(`Database error: ${event.target.error}`)
 }
 
-//「☆」を「Option」に、「Clear Lamp」を「Lamp」に、「Difficulty」を「Diff」に、「Probability」を「%」にする
-//「☆」列を取得する
-const columnOption = table.rows[0].cells[0]
-columnOption.textContent = "Option"
-//「☆」列をクリックできないようにする
-columnOption.style.pointerEvents = "none"
-//「Clear Lamp」列を取得する
-const columnClearLamp = table.rows[0].cells[2]
-columnClearLamp.textContent = "Lamp"
-//「Difficulty」列を取得する
-const columnDifficulty = table.rows[0].cells[3]
-columnDifficulty.textContent = "Diff"
-//「Probability」列を取得する
-const columnProbability = table.rows[0].cells[5]
-columnProbability.textContent = "%"
-
-//th行以外を取得する
-for(const row of Array.from(table.rows).slice(1))
+///analytics/combined/ページ用の処理
+if(window.location.pathname.includes("/analytics/combined/"))
 {
-	const option = row.cells[0]
-	const title = row.cells[1]
-	const lamp = row.cells[2]
+	//「☆」を「Option」に、「Clear Lamp」を「Lamp」に、「Difficulty」を「Diff」に、「Probability」を「%」にする
+	//「☆」列を取得する
+	const columnOption = table.rows[0].cells[0]
+	columnOption.textContent = "Option"
+	//「☆」列をクリックできないようにする
+	columnOption.style.pointerEvents = "none"
+	//「Clear Lamp」列を取得する
+	const columnClearLamp = table.rows[0].cells[2]
+	columnClearLamp.textContent = "Lamp"
+	//「Difficulty」列を取得する
+	const columnDifficulty = table.rows[0].cells[3]
+	columnDifficulty.textContent = "Diff"
+	//「Probability」列を取得する
+	const columnProbability = table.rows[0].cells[5]
+	columnProbability.textContent = "%"
 
-	//非公式難易度をオプションと置き換える
-	//タイトルを短くする
-	//href部分を変数に格納
-	const href = title.querySelector("a").getAttribute("href")
-	//曲名を変数に格納
-	const textTitle = title.childNodes[0].textContent.split(" ").slice(0, -1).join(" ")
-	//style要素を取得
-	const styleTitle = title.querySelector("span").style.color
-	//曲名部分を置き換える
-	title.innerHTML = `<a href="${href}" target="_blank"><span style="color: ${styleTitle}">${textTitle}</span></a>`
-
-	//クリアランプの表示を短くする
-	if(lamp.textContent.startsWith("EX-HARD"))
+	//「Title」を短くする、クリアランプの表示を短くする
+	//th行以外を取得する
+	for(const row of Array.from(table.rows).slice(1))
 	{
-		lamp.innerHTML = `<span style="color: #efef51">EXH</span>`
+		const title = row.cells[1]
+		const lamp = row.cells[2]
+
+		//タイトルを短くする
+		//href部分を変数に格納
+		const href = title.querySelector("a").getAttribute("href")
+		//曲名を変数に格納
+		const textTitle = title.childNodes[0].textContent.split(" ").slice(0, -1).join(" ")
+		//style要素を取得
+		const styleTitle = title.querySelector("span").style.color
+		//曲名部分を置き換える
+		title.innerHTML = `<a href="${href}" target="_blank"><span style="color: ${styleTitle}">${textTitle}</span></a>`
+
+		//クリアランプの表示を短くする
+		if(lamp.textContent.startsWith("EX-HARD"))
+		{
+			lamp.innerHTML = `<span style="color: #efef51">EXH</span>`
+		}
 	}
+
+	//エクスポートとインポートのボタンとテキストボックスを追加する
+	//DOMを追加する場所のflexboxを調整する
+	const divFlex = document.querySelector("div.col-md-3.pt-3")
+	divFlex.classList.remove("col-md-3")
+	divFlex.classList.add("col-md-9")
+
+	//追加するボタンとテキストボックスの作成
+	const exportButton = document.createElement("button")
+	exportButton.setAttribute("class", "blend")
+	exportButton.setAttribute("type", "button")
+	exportButton.textContent = "Export OP"
+	exportButton.style.marginRight = "1rem"
+
+	const importButton = document.createElement("button")
+	importButton.setAttribute("class", "blend")
+	importButton.setAttribute("type", "button")
+	importButton.textContent = "Import OP"
+	importButton.style.marginRight = "1rem"
+
+	const textBox = document.createElement("textarea")
+	textBox.style.width = "25%"
+	textBox.style.height = "2rem"
+
+	//DOMの挿入場所の指定
+	const position = document.querySelector("div.input-group")
+	//DOMの挿入
+	position.insertAdjacentElement("beforeend", exportButton)
+	position.insertAdjacentElement("beforeend", importButton)
+	position.insertAdjacentElement("beforeend", textBox)
+
+	//エクスポートボタンクリック時の処理
+	exportButton.addEventListener("click", () =>
+	{
+		const request = indexedDB.open(nameDB, versionDB)
+		request.onsuccess = (event) =>
+		{
+			const db = event.target.result
+			const transaction = db.transaction(nameDB, "readonly")
+			const objectStore = transaction.objectStore(nameDB)
+			const getAllRequest = objectStore.getAll()
+
+			getAllRequest.onsuccess = () =>
+			{
+				textBox.value = JSON.stringify(getAllRequest.result, null, 2)
+			}
+		}
+	})
+	//インポートボタンクリック時の処理
+	importButton.addEventListener("click", () =>
+	{
+		const data = JSON.parse(textBox.value)
+		const request = indexedDB.open(nameDB, versionDB)
+		request.onsuccess = (event) =>
+		{
+			const db = event.target.result
+			const transaction = db.transaction(nameDB, "readwrite")
+			const objectStore = transaction.objectStore(nameDB)
+
+			data.forEach((item) =>
+			{
+				objectStore.put(item)
+			})
+
+			transaction.oncomplete = () =>
+			{
+				//アラートを日本語と英語で表示する
+				window.alert("オプションのインポートが完了しました。\nThe import of options is complete.")
+			}
+		}
+	})
 }
-
-//エクスポートとインポートのボタンとテキストボックスを追加する
-//DOMを追加する場所のflexboxを調整する
-const divFlex = document.querySelector("div.col-md-3.pt-3")
-divFlex.classList.remove("col-md-3")
-divFlex.classList.add("col-md-9")
-
-//追加するボタンとテキストボックスの作成
-const exportButton = document.createElement("button")
-exportButton.setAttribute("class", "blend")
-exportButton.setAttribute("type", "button")
-exportButton.textContent = "Export OP"
-exportButton.style.marginRight = "1rem"
-
-const importButton = document.createElement("button")
-importButton.setAttribute("class", "blend")
-importButton.setAttribute("type", "button")
-importButton.textContent = "Import OP"
-importButton.style.marginRight = "1rem"
-
-const textBox = document.createElement("textarea")
-textBox.style.width = "25%"
-textBox.style.height = "2rem"
-
-//DOMの挿入場所の指定
-const position = document.querySelector("div.input-group")
-//DOMの挿入
-position.insertAdjacentElement("beforeend", exportButton)
-position.insertAdjacentElement("beforeend", importButton)
-position.insertAdjacentElement("beforeend", textBox)
-
-//エクスポートボタンクリック時の処理
-exportButton.addEventListener("click", () =>
+///level/12/ページ用の処理
+else if(window.location.pathname.includes("/level/12/"))
 {
-	const request = indexedDB.open(nameDB, versionDB)
-	request.onsuccess = (event) =>
-	{
-		const db = event.target.result
-		const transaction = db.transaction(nameDB, "readonly")
-		const objectStore = transaction.objectStore(nameDB)
-		const getAllRequest = objectStore.getAll()
+	//「☆」を「Option」に、「Rank」を「Diff」に、「Clear lamp」を「Lamp」にする
+	//「☆」列を取得する
+	const columnOption = table.rows[0].cells[0]
+	columnOption.textContent = "Option"
+	//「☆」列をクリックできないようにする
+	columnOption.style.pointerEvents = "none"
+	//「Rank」列を取得する
+	const columnClearLamp = table.rows[0].cells[2]
+	columnClearLamp.textContent = "Diff"
+	//「Clear lamp」列を取得する
+	const columnProbability = table.rows[0].cells[5]
+	columnProbability.textContent = "Lamp"
 
-		getAllRequest.onsuccess = () =>
+	//th行以外を取得する
+	for(const row of Array.from(table.rows).slice(1))
+	{
+		const title = row.cells[1]
+		const lamp = row.cells[5]
+
+		//タイトルを短くする
+		//href部分を変数に格納
+		const href = title.querySelector("a").getAttribute("href")
+		//曲名を変数に格納
+		const textTitle = title.childNodes[0].textContent.split(" ").slice(0, -1).join(" ")
+		//style要素を取得
+		const styleTitle = title.querySelector("span").style.color
+		//曲名部分を置き換える
+		title.innerHTML = `<a href="${href}" target="_blank"><span style="color: ${styleTitle}">${textTitle}</span></a>`
+
+		//クリアランプの表示を短くする
+		if(lamp.textContent.startsWith("EX-HARD"))
 		{
-			textBox.value = JSON.stringify(getAllRequest.result, null, 2)
+			lamp.innerHTML = `<span style="color: #efef51">EXHARD</span>`
+		}
+
+		//「Score rank」のclass="text-nowrap"のspanの下の最初のspan要素を削除する
+		const scoreRank = row.cells[4].querySelector("span.text-nowrap")
+		//NOPLAYのときはspan要素がないので、scoreRankが存在するか確認
+		if(scoreRank)
+		{
+			const firstSpan = scoreRank.querySelector("span")
+			if(firstSpan)
+			{
+				firstSpan.remove()
+			}
 		}
 	}
-})
-//インポートボタンクリック時の処理
-importButton.addEventListener("click", () =>
-{
-	const data = JSON.parse(textBox.value)
-	const request = indexedDB.open(nameDB, versionDB)
-	request.onsuccess = (event) =>
-	{
-		const db = event.target.result
-		const transaction = db.transaction(nameDB, "readwrite")
-		const objectStore = transaction.objectStore(nameDB)
 
-		data.forEach((item) =>
-		{
-			objectStore.put(item)
-		})
-
-		transaction.oncomplete = () =>
-		{
-			//アラートを日本語と英語で表示する
-			window.alert("オプションのインポートが完了しました。\nThe import of options is complete.")
-		}
-	}
-})
+}
 
 //cssの設定
 const style = document.createElement("style")
@@ -347,7 +458,7 @@ select{
 	width: 2rem;
 }
 select.first-select{
-	width: 1.75rem;
+	width: 1.5rem;
 }
 select:hover{
 	background-color: #8690AE;
